@@ -6,19 +6,6 @@ assignment, writes a comment about a real passage, runs it through
 character at a time and posts it. It repeats until the assignment's required
 comment count is met.
 
-Sibling of [pollevbot-uci](https://github.com/?/pollevbot-uci): same idea (you
-do the Duo login, the bot does the rest), plus the typing feel of `fake_typer`
-done through the browser instead of OS keystrokes.
-
-## Why Patchright, not Selenium
-
-humanizeai.pro sits behind Cloudflare Turnstile, and Turnstile's own docs say
-automation suites are detected as bots. A plain Selenium/CDP browser gets the
-humanize call rejected with `403` and then the whole site blocked. Patchright is
-a Playwright drop-in that patches the CDP tells Turnstile looks for, so the same
-workflow passes. Perusall needs none of this; it is just along for the ride in
-the same browser.
-
 ## Prerequisites
 
 - `uv` and a Linux/WSL environment with a display (`DISPLAY` set; WSLg is fine)
@@ -33,7 +20,7 @@ uv sync
 uv run patchright install chromium
 ```
 
-(`patchright install chrome` wants sudo and fails in WSL — use `chromium`.)
+(`patchright install chrome` wants sudo and fails in WSL. Please use `chromium`.)
 
 ## Run
 
@@ -47,18 +34,6 @@ your course's assignments list. **Log in there yourself** (UCI SSO + Duo), then
 press Enter in the terminal. The bot takes over from there: it walks the list,
 skips anything already finished or already satisfied, and opens the first
 assignment that still needs comments.
-
-Comments are spread evenly through the document rather than stacked on the first
-page: with three to post it annotates roughly a sixth, half and five-sixths of
-the way through. The reader only renders the pages near the viewport, so the bot
-first scrolls the whole document to collect its text, then scrolls to each
-passage before highlighting it. The title is never annotated, and neither is a
-passage the run already used.
-
-Each comment is at least **100 words** — the model is told to use the space and
-be as substantive as it can, and a reply that comes back short stops the run
-instead of posting something thin. A humanizer rewrite that loses a fifth of the
-words is discarded in favour of the original.
 
 | Flag | Meaning |
 | --- | --- |
@@ -83,22 +58,6 @@ Exit code `0` means the requirement was met (or your `--count` cap was reached).
   gives up if the count still hasn't changed.
 - **No unused passages left**, or more than 20 minutes elapsed — it gives up.
 
-## Known gaps
-
-- **Comments already on the page are not detected.** The bot only avoids
-  passages it used earlier in the *same* run. Pointing it at an assignment you
-  (or a previous run) already commented on can highlight the same passage twice.
-- It posts top-level comments only. It does not reply to classmates or answer
-  checkpoints.
-- One course, one assignment per run: the assignments list URL is hard-coded in
-  `perusall.py` (`ASSIGNMENTS_URL`).
-- **Even spread only reaches text the reader renders.** The bot scrolls the
-  document from top to bottom to load every page before it picks passages, so a
-  passage it cannot reach means the reader refused to scroll — it then stops
-  rather than commenting on page one again.
-- Typing speed is a single constant (`human_type.BASE_DELAY`, ~0.12 s per key). Raise it
-  if the typing looks mechanical.
-
 ## Layout
 
 | File | Responsibility |
@@ -109,5 +68,3 @@ Exit code `0` means the requirement was met (or your `--count` cap was reached).
 | `llm.py` | comment generation through `pi -p`, model list for the picker |
 | `human_type.py` | per-character keystroke timing |
 | `tests/` | unit tests; no browser needed |
-
-Design and plan: `docs/superpowers/specs/`, `docs/superpowers/plans/`.
