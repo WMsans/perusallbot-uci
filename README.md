@@ -74,7 +74,7 @@ Exit code `0` means the requirement was met (or your `--count` cap was reached).
   checkpoints.
 - One course, one assignment per run: the assignments list URL is hard-coded in
   `perusall.py` (`ASSIGNMENTS_URL`).
-- Typing speed is a single constant (`human_type.BASE_DELAY`, ~200 wpm). Raise it
+- Typing speed is a single constant (`human_type.BASE_DELAY`, ~0.12 s per key). Raise it
   if the typing looks mechanical.
 
 ## Layout

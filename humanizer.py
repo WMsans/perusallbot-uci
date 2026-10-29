@@ -28,8 +28,17 @@ def _blocked(page) -> bool:
 
 def humanize_with_web(page, text: str, timeout_s: float = 40) -> str:
     page.goto(URL)
-    page.locator(INPUT).fill(text)
-    page.keyboard.press("Control+Enter")
+
+    # A block page has no form at all, so check before reaching for it.
+    if _blocked(page):
+        raise HumanizerBlocked(f"humanizeai.pro blocked us: {page.title()!r}")
+    try:
+        page.locator(INPUT).fill(text)
+        page.keyboard.press("Control+Enter")
+    except Exception as exc:
+        if _blocked(page):
+            raise HumanizerBlocked(f"humanizeai.pro blocked us: {page.title()!r}") from exc
+        raise
 
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:

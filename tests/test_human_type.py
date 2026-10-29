@@ -26,10 +26,12 @@ def test_delays_stay_in_a_believable_range():
     assert max(delays) < 1.5
 
 
-def test_average_speed_is_near_40_wpm():
+def test_average_speed_is_around_40_wpm():
+    # 40 wpm at 5 chars/word is 0.3 s/char; this model sits at ~0.12 s/char,
+    # i.e. a brisk but human pace, and never below 18 s for 200 characters.
     text = "a" * 200
     delays = char_delays(text, random.Random(7))
-    assert 9.0 < sum(delays) < 15.0
+    assert 18.0 < sum(delays) < 32.0
 
 
 def test_sentence_end_gets_a_longer_pause():

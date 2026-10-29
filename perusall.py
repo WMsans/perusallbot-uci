@@ -60,7 +60,16 @@ EDITOR = "div.ql-editor"
 POST_BUTTON = 'button[aria-label="Post comment"]'
 
 
+class AssignmentNotFound(Exception):
+    """No assignment row matched."""
+
+
 def read_requirement(page) -> Requirement | None:
+    """Read the progress bubble, giving the panel a moment to render."""
+    try:
+        page.wait_for_selector(".my-progress", timeout=10_000)
+    except Exception:
+        return None
     loc = page.locator(".my-progress")
     try:
         if loc.count() == 0:
@@ -83,26 +92,45 @@ def reload_reader(page) -> None:
     page.wait_for_selector(".page-container", timeout=60_000)
 
 
+def require_rows(rows):
+    """Fail loudly when nothing matched, instead of a click timeout."""
+    if rows.count() == 0:
+        raise AssignmentNotFound("no assignment in the list matched")
+    return rows
+
+
 def open_first_assignment(page, name: str | None = None) -> None:
     page.goto(ASSIGNMENTS_URL)
-    toggle = page.get_by_role("switch", name="Preview")
-    if toggle.get_attribute("aria-checked") == "false":
-        toggle.click()
-    rows = page.locator(ROWS)
-    row = page.locator(ROWS, has_text=name) if name else rows
-    row.first.click()
+    # Past-due assignments are hidden so the first row is one still worth doing.
+    for label in ("Hide past due", "Preview"):
+        toggle = page.get_by_role("switch", name=label)
+        if toggle.get_attribute("aria-checked") == "false":
+            toggle.click()
+    rows = require_rows(page.locator(ROWS, has_text=name) if name else page.locator(ROWS))
+    rows.first.click()
     page.get_by_role("button", name="Work on assignment").click()
     page.wait_for_selector(".page-container", timeout=60_000)
 
 
-def _span_index_for(page, excerpt: str) -> int | None:
-    needle = " ".join(excerpt.split())[:30]
+def find_span(page, excerpt: str) -> int:
+    """Index of the span where the excerpt starts.
+
+    An excerpt can begin mid-line (sentence windows do not respect line
+    breaks), so the probe is matched *inside* a span, not only at its start.
+    Fall back to shorter probes when the opening words straddle two spans.
+    """
+    needle = " ".join(excerpt.split())
     spans = page.locator(PAGE_TEXT_SPANS)
-    for i in range(spans.count()):
-        text = " ".join(spans.nth(i).inner_text().split())
-        if text and needle.startswith(text[: len(needle)]) and len(text) >= 10:
-            return i
-    return None
+    count = spans.count()
+    for length in (30, 24, 18, 12):
+        probe = needle[:length]
+        if not probe:
+            continue
+        for i in range(count):
+            text = " ".join(spans.nth(i).inner_text().split())
+            if len(text) >= 10 and probe in text:
+                return i
+    raise RuntimeError(f"could not find the excerpt on the page: {excerpt[:40]!r}")
 
 
 def post_comment(page, excerpt: str, text: str, rng) -> None:
@@ -110,9 +138,7 @@ def post_comment(page, excerpt: str, text: str, rng) -> None:
     import human_type
 
     spans = page.locator(PAGE_TEXT_SPANS)
-    start = _span_index_for(page, excerpt)
-    if start is None:
-        raise RuntimeError(f"could not find the excerpt on the page: {excerpt[:40]!r}")
+    start = find_span(page, excerpt)
 
     top = spans.nth(start).bounding_box()
     below = spans.nth(min(start + 2, spans.count() - 1)).bounding_box()

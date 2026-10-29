@@ -78,3 +78,22 @@ def test_stops_when_excerpts_run_out(monkeypatch):
     monkeypatch.setattr(main, "choose_excerpt", lambda spans, used, **kw: None)
     assert main.run(None, None, make_args(), random.Random(1)) != 0
     assert posted == []
+
+
+def test_llm_failure_stops_before_posting(monkeypatch):
+    from llm import LlmError
+
+    posted, _ = wire(monkeypatch, [3, 2, 1, 0])
+    monkeypatch.setattr(main, "write_insight", lambda e, t, m: (_ for _ in ()).throw(LlmError("pi died")))
+    assert main.run(None, None, make_args(), random.Random(1)) != 0
+    assert posted == []
+
+
+def test_an_unexpected_browser_error_stops_instead_of_raising(monkeypatch):
+    posted, _ = wire(monkeypatch, [3, 2, 1, 0])
+
+    def exploding_post(page, excerpt, text, rng):
+        raise RuntimeError("excerpt not found")
+
+    monkeypatch.setattr(main, "post_comment", exploding_post)
+    assert main.run(None, None, make_args(), random.Random(1)) != 0

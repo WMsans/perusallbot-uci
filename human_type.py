@@ -3,8 +3,8 @@
 import random
 import time
 
-# shortcut: tuned to the plan's timing test (~200 wpm); raise it to type slower.
-BASE_DELAY = 0.06
+# ~0.12 s/char: a brisk but human pace, and never instant-looking.
+BASE_DELAY = 0.12
 JITTER = 0.6
 
 

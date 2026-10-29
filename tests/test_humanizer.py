@@ -69,3 +69,27 @@ def test_empty_result_raises():
 def test_llm_fallback_is_available_but_not_default():
     assert "web" in humanizer.HUMANIZERS
     assert "llm" in humanizer.HUMANIZERS
+
+
+class BlockedPage:
+    """A block page: no input field, Cloudflare title."""
+
+    def __init__(self):
+        self.keyboard = FakeKeyboard(self)
+
+    def goto(self, *a, **kw):
+        pass
+
+    def title(self):
+        return "Sorry, you have been blocked"
+
+    def locator(self, selector):
+        raise AssertionError("must not touch the form on a block page")
+
+    def wait_for_timeout(self, ms):
+        pass
+
+
+def test_block_page_is_reported_before_touching_the_form():
+    with pytest.raises(humanizer.HumanizerBlocked):
+        humanizer.humanize_with_web(BlockedPage(), "raw words")

@@ -9,7 +9,6 @@ from patchright.sync_api import sync_playwright
 
 import humanizer
 import perusall
-from human_type import type_like_human  # noqa: F401  (re-exported for tests)
 from humanizer import HumanizerBlocked
 from llm import LlmError, write_insight
 from perusall import (
@@ -79,6 +78,9 @@ def run(page, hpage, args, rng) -> int:
             return 1
         except HumanizerBlocked as exc:
             print(f"Stopped after {posted} comment(s): {exc}")
+            return 1
+        except Exception as exc:  # a browser surprise must still stop cleanly
+            print(f"Stopped after {posted} comment(s): {type(exc).__name__}: {exc}")
             return 1
 
         used.add(excerpt)

@@ -60,3 +60,12 @@ def test_write_insight_passes_excerpt_into_the_prompt(monkeypatch):
     assert "excerpt about stories" in seen["prompt"]
     assert "Chapter 7" in seen["prompt"]
     assert out.startswith("I keep coming back")
+
+
+def test_ask_gives_up_when_pi_hangs(monkeypatch):
+    def hang(cmd, **kw):
+        raise subprocess.TimeoutExpired(cmd, 120)
+
+    monkeypatch.setattr(subprocess, "run", hang)
+    with pytest.raises(llm.LlmError):
+        llm.ask("PROMPT", None)

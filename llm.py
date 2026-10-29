@@ -3,6 +3,7 @@
 import subprocess
 
 PI = "pi"
+PI_TIMEOUT_S = 120
 _BASE_ARGS = [
     "-p",
     "--no-tools",
@@ -36,7 +37,10 @@ def ask(prompt: str, model: str | None) -> str:
     if model:
         cmd += ["--model", model]
     cmd.append(prompt)
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=PI_TIMEOUT_S)
+    except subprocess.TimeoutExpired as exc:
+        raise LlmError(f"pi did not answer within {PI_TIMEOUT_S}s") from exc
     if proc.returncode != 0:
         raise LlmError(f"pi exited {proc.returncode}: {proc.stderr.strip()[:300]}")
     return proc.stdout.strip()
