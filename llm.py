@@ -4,6 +4,7 @@ import subprocess
 
 PI = "pi"
 PI_TIMEOUT_S = 120
+MIN_WORDS = 100
 _BASE_ARGS = [
     "-p",
     "--no-tools",
@@ -24,8 +25,10 @@ The passage you highlighted:
 
 Write one comment on that passage with real insight: notice something specific
 about what the author claims, or connect it to an implication they leave
-unstated. Two to four sentences, first person, under 60 words, plain prose. Do
-not open with "This chapter" or "The author". Reply with the comment only."""
+unstated. First person, plain prose, at least {min_words} words — take the space
+to develop the thought properly, since a longer, more substantive comment is
+better than a short one. Do not open with "This chapter" or "The author". Reply
+with the comment only."""
 
 
 class LlmError(Exception):
@@ -47,7 +50,32 @@ def ask(prompt: str, model: str | None) -> str:
 
 
 def write_insight(excerpt: str, doc_title: str, model: str | None) -> str:
-    out = ask(_PROMPT.format(title=doc_title, excerpt=excerpt), model)
-    if len(out) < 20:
-        raise LlmError(f"pi returned no usable comment: {out!r}")
+    prompt = _PROMPT.format(title=doc_title, excerpt=excerpt, min_words=MIN_WORDS)
+    out = ask(prompt, model)
+    words = len(out.split())
+    if words < MIN_WORDS:
+        raise LlmError(f"pi returned {words} words, under the {MIN_WORDS} the comment needs: {out!r}")
     return out
+
+
+def list_models() -> list[str]:
+    """Every model pi can run, as `provider/model`, for the picker."""
+    try:
+        proc = subprocess.run(
+            [PI, "--list-models"], capture_output=True, text=True, timeout=PI_TIMEOUT_S
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise LlmError(f"pi --list-models did not answer within {PI_TIMEOUT_S}s") from exc
+    if proc.returncode != 0:
+        raise LlmError(f"pi --list-models exited {proc.returncode}: {proc.stderr.strip()[:300]}")
+    return parse_models(proc.stdout)
+
+
+def parse_models(table: str) -> list[str]:
+    """Pull `provider/model` out of the columns pi prints."""
+    models = []
+    for line in table.splitlines():
+        cells = line.split()
+        if len(cells) >= 2 and cells[0] != "provider":
+            models.append(f"{cells[0]}/{cells[1]}")
+    return models

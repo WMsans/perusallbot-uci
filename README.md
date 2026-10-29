@@ -23,6 +23,7 @@ the same browser.
 
 - `uv` and a Linux/WSL environment with a display (`DISPLAY` set; WSLg is fine)
 - `pi` on `PATH` (`/usr/bin/pi`) with a provider already authenticated
+- `fzf` on `PATH` for the model picker (without it, `pi`'s default model is used)
 - A Perusall account, and Duo to get into it
 
 ## Setup
@@ -37,17 +38,31 @@ uv run patchright install chromium
 ## Run
 
 ```bash
-uv run main.py --model deepseek/deepseek-flash
+uv run main.py
 ```
 
-A Chrome window opens on your course's assignments list. **Log in there
-yourself** (UCI SSO + Duo), then press Enter in the terminal. The bot takes over
-from there: it walks the list, skips anything already finished or already
-satisfied, and opens the first assignment that still needs comments.
+First an `fzf` list of every model `pi` can run appears — pick the one that
+writes the comments (Esc uses `pi`'s default). Then a Chrome window opens on
+your course's assignments list. **Log in there yourself** (UCI SSO + Duo), then
+press Enter in the terminal. The bot takes over from there: it walks the list,
+skips anything already finished or already satisfied, and opens the first
+assignment that still needs comments.
+
+Comments are spread evenly through the document rather than stacked on the first
+page: with three to post it annotates roughly a sixth, half and five-sixths of
+the way through. The reader only renders the pages near the viewport, so the bot
+first scrolls the whole document to collect its text, then scrolls to each
+passage before highlighting it. The title is never annotated, and neither is a
+passage the run already used.
+
+Each comment is at least **100 words** — the model is told to use the space and
+be as substantive as it can, and a reply that comes back short stops the run
+instead of posting something thin. A humanizer rewrite that loses a fifth of the
+words is discarded in favour of the original.
 
 | Flag | Meaning |
 | --- | --- |
-| `--model <pattern>` | `pi` model used to write comments, e.g. `deepseek/deepseek-flash`, `openrouter/...`. Default: whatever `pi` uses. |
+| `--model <pattern>` | Skip the picker and use this model, e.g. `deepseek/deepseek-flash`, `openrouter/...`. |
 | `--assignment <text>` | Only pick an assignment whose name contains this text. |
 | `--count <n>` | Post at most `n` comments this run. |
 | `--humanizer web\|llm` | `web` (default) uses humanizeai.pro. `llm` skips it and rewrites with `pi` instead. |
@@ -77,6 +92,10 @@ Exit code `0` means the requirement was met (or your `--count` cap was reached).
   checkpoints.
 - One course, one assignment per run: the assignments list URL is hard-coded in
   `perusall.py` (`ASSIGNMENTS_URL`).
+- **Even spread only reaches text the reader renders.** The bot scrolls the
+  document from top to bottom to load every page before it picks passages, so a
+  passage it cannot reach means the reader refused to scroll — it then stops
+  rather than commenting on page one again.
 - Typing speed is a single constant (`human_type.BASE_DELAY`, ~0.12 s per key). Raise it
   if the typing looks mechanical.
 
@@ -84,10 +103,10 @@ Exit code `0` means the requirement was met (or your `--count` cap was reached).
 
 | File | Responsibility |
 | --- | --- |
-| `main.py` | CLI, the posting loop, stop rules |
+| `main.py` | CLI, fzf model picker, the posting loop, stop rules |
 | `perusall.py` | assignments list, reader, composer (all selectors live here) |
 | `humanizer.py` | humanizeai.pro client, block detection, `llm` mode |
-| `llm.py` | comment generation through `pi -p` |
+| `llm.py` | comment generation through `pi -p`, model list for the picker |
 | `human_type.py` | per-character keystroke timing |
 | `tests/` | unit tests; no browser needed |
 
