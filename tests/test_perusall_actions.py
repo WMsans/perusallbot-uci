@@ -77,6 +77,9 @@ class SpanPage:
     def __init__(self, texts):
         self.texts = texts
 
+    def evaluate(self, script, args=None):
+        return self.texts
+
     def locator(self, selector):
         page = self
 
@@ -250,3 +253,204 @@ def test_reports_when_every_assignment_is_already_done():
     with pytest.raises(AssignmentNotFound):
         open_first_assignment(page)
     assert page.work_clicked == 0
+
+
+# --- the reader renders lazily, so passages have to be scrolled to ----------
+# Regression: every comment landed on page one, because the DOM only ever held
+# the pages the reader had rendered and nothing scrolled it.
+
+import pytest  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+
+import perusall  # noqa: E402
+
+PAGE_HEIGHT, VIEWPORT = 1000, 1000
+
+
+class RenderedSpans:
+    def __init__(self, texts):
+        self.texts = texts
+
+    def count(self):
+        return len(self.texts)
+
+    def nth(self, i):
+        texts = self.texts
+        return SimpleNamespace(inner_text=lambda: texts[i])
+
+
+class LazyReader:
+    """A reader like Perusall's: only pages overlapping the viewport exist."""
+
+    def __init__(self, pages):
+        self.pages = pages
+        self.top = 0
+
+    @property
+    def max(self):
+        return max(0, len(self.pages) * PAGE_HEIGHT - VIEWPORT)
+
+    def evaluate(self, script, args=None):
+        if script is perusall._SPAN_TEXTS:
+            return [line for i in self.visible() for line in self.pages[i]]
+        frac, dy = args if args else (None, 0.0)
+        if script is perusall._SCROLL:
+            before = self.top
+            self.top = min(
+                self.max, max(0, frac * self.max if frac is not None else before + dy)
+            )
+            return {"max": self.max, "top": self.top, "height": VIEWPORT,
+                    "down": self.top > before}
+        return [{"top": i * PAGE_HEIGHT // 50, "lines": self.pages[i]} for i in self.visible()]
+
+    def visible(self):
+        first = int(self.top) // PAGE_HEIGHT
+        last = first + 1
+        return [i for i in range(first, last + 1) if i < len(self.pages)]
+
+    def wait_for_timeout(self, ms):
+        pass
+
+    def locator(self, selector):
+        return RenderedSpans([line for i in self.visible() for line in self.pages[i]])
+
+
+def _page(i):
+    return [f"Page {i} opens with a sentence long enough to be an excerpt."]
+
+
+READER_PAGES = [_page(i) for i in range(6)]
+
+
+def test_the_whole_document_is_collected_not_just_the_first_page():
+    reader = LazyReader(READER_PAGES)
+    assert perusall.document_spans(reader) == [line for lines in READER_PAGES for line in lines]
+
+
+def test_a_passage_from_a_later_page_is_scrolled_to_and_found():
+    reader = LazyReader(READER_PAGES)
+    excerpt = READER_PAGES[4][0]
+    index = perusall.reveal_excerpt(reader, excerpt, target=0.1)  # asked for near the top
+    assert reader.locator(perusall.PAGE_TEXT_SPANS).nth(index).inner_text() == excerpt
+    assert reader.top > 0
+
+
+def test_reveal_excerpt_reports_a_passage_that_is_not_there():
+    with pytest.raises(RuntimeError):
+        perusall.reveal_excerpt(LazyReader(READER_PAGES), "text that is definitely not there")
+
+
+# --- the PDF text layer writes spaces as a control character -----------------
+# Regression: with \x15 instead of " " the sentence splitter never fired, so
+# choose_excerpt saw one enormous sentence and handed back page one every time.
+
+
+def test_control_char_spaces_are_read_as_spaces():
+    reader = LazyReader([["L]Vi\x15K^YZd\x15<VbZh\x15=VkZ"]])
+    assert perusall.document_spans(reader) == ["L]Vi K^YZd <VbZh =VkZ"]
+
+
+def test_finds_an_excerpt_when_the_span_uses_control_char_spaces():
+    page = SpanPage(["What\x15Video\x15Games\x15Have\x15to\x15Teach\x15Us"])
+    assert perusall.find_span(page, "What Video Games Have to Teach Us") == 0
+
+
+# --- centring the line: a drag during a scroll picks nothing ------------------
+
+
+class SettlingReader:
+    """Same box twice in a row means the reader has stopped moving."""
+
+    def __init__(self, boxes):
+        self.boxes = list(boxes)
+        self.waits = 0
+
+    def evaluate(self, script, arg=None):
+        return self.boxes.pop(0) if len(self.boxes) > 1 else self.boxes[0]
+
+    def wait_for_timeout(self, ms):
+        self.waits += 1
+
+
+def test_centre_waits_until_the_reader_stops_moving():
+    reader = SettlingReader([[0, 9, 1, 1], [0, 5, 1, 1], [0, 4, 1, 1], [0, 4, 1, 1]])
+    perusall.center_span(reader, 3)
+    assert reader.waits == 3
+
+
+def test_centre_gives_up_on_a_line_the_reader_lost():
+    class Gone:
+        def evaluate(self, script, arg=None):
+            return None
+
+    with pytest.raises(RuntimeError, match="lost"):
+        perusall.center_span(Gone(), 3)
+
+
+def test_finds_an_excerpt_whose_start_straddles_a_line_break():
+    # not needed any more: choose_excerpt never starts mid-line. This guards the
+    # short-probe fallback anyway, for a window whose first line is short.
+    page = SpanPage([
+        "the reading distributed via a com-",
+        ". In this game you are Solid Snake and the game tells you so",
+    ])
+    assert perusall.find_span(page, "In this game you are Solid Snake") == 1
+
+
+# --- a drag Perusall swallows is retried once, not fatal ----------------------
+
+
+class EditorPage:
+    """wait_for_selector fails `misses` times, then the editor is there."""
+
+    def __init__(self, misses):
+        self.misses = misses
+        self.typed = ""
+        self.posted = 0
+        self.keyboard = SimpleNamespace(type=self._type)
+
+    def _type(self, ch):
+        self.typed += ch
+
+    def wait_for_selector(self, selector, timeout=None):
+        if self.misses:
+            self.misses -= 1
+            raise TimeoutError("div.ql-editor never appeared")
+        return object()
+
+    def locator(self, selector):
+        page = self
+
+        class Stub:
+            def count(self):
+                return 0
+
+            def click(self):
+                if selector == perusall.POST_BUTTON:
+                    page.posted += 1
+
+        return Stub()
+
+
+def _stub_highlight(monkeypatch, calls):
+    def fake(page, excerpt, rng, target=None):
+        calls.append(excerpt)
+
+    monkeypatch.setattr(perusall, "highlight", fake)
+
+
+def test_a_swallowed_drag_is_retried_once(monkeypatch):
+    calls = []
+    _stub_highlight(monkeypatch, calls)
+    page = EditorPage(misses=1)
+    perusall.post_comment(page, "an excerpt", "hi", __import__("random").Random(1))
+    assert len(calls) == 2 and page.posted == 1
+
+
+def test_two_swallowed_drags_still_stop_the_run(monkeypatch):
+    calls = []
+    _stub_highlight(monkeypatch, calls)
+    page = EditorPage(misses=2)
+    with pytest.raises(TimeoutError):
+        perusall.post_comment(page, "an excerpt", "hi", __import__("random").Random(1))
+    assert page.posted == 0

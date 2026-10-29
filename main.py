@@ -2,6 +2,7 @@
 
 import argparse
 import random
+import subprocess
 import sys
 import time
 
@@ -10,13 +11,13 @@ from patchright.sync_api import sync_playwright
 import humanizer
 import perusall
 from humanizer import HumanizerBlocked
-from llm import LlmError, write_insight
+from llm import LlmError, list_models, write_insight
 from perusall import (
     AssignmentNotFound,
     choose_excerpt,
     doc_title,
+    document_spans,
     open_first_assignment,
-    page_spans,
     post_comment,
     read_requirement,
     reload_reader,
@@ -27,13 +28,37 @@ MAX_SECONDS = 20 * 60
 
 def humanize(text: str, page, which: str, model: str | None) -> str:
     if which == "llm":
-        return humanizer.humanize_with_llm(text, model)
-    return humanizer.humanize_with_web(page, text)
+        out = humanizer.humanize_with_llm(text, model)
+    else:
+        out = humanizer.humanize_with_web(page, text)
+    # Post the original if the rewrite lost a fifth of the words: the comment is
+    # meant to be long, and a trimmed rewrite undoes that.
+    return out if len(out.split()) >= 0.8 * len(text.split()) else text
+
+
+def pick_model() -> str | None:
+    """fzf over pi's model list. Esc, missing fzf, or an error: pi's default."""
+    try:
+        models = list_models()
+    except LlmError as exc:
+        print(f"Could not list models ({exc}); using pi's default.")
+        return None
+    try:
+        proc = subprocess.run(
+            ["fzf", "--height=40%", "--reverse", "--prompt=model> "],
+            input="\n".join(models) + "\n",
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        print("fzf is not installed; using pi's default model.")
+        return None
+    return proc.stdout.strip() or None
 
 
 def parse_args(argv):
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--model", help="pi model pattern, e.g. deepseek/deepseek-flash")
+    ap.add_argument("--model", help="pi model, e.g. deepseek/deepseek-flash (default: pick with fzf)")
     ap.add_argument("--assignment", help="only pick assignments whose name matches")
     ap.add_argument("--count", type=int, help="post at most this many comments")
     ap.add_argument("--humanizer", choices=sorted(humanizer.HUMANIZERS), default="web")
@@ -50,6 +75,8 @@ def run(page, hpage, args, rng) -> int:
           f"({requirement.remaining} remaining).")
 
     limit = args.count if args.count is not None else requirement.remaining
+    total = max(1, min(limit, requirement.remaining))
+    spans = document_spans(page)
     used: set[str] = set()
     posted = 0
     remaining = requirement.remaining
@@ -65,15 +92,18 @@ def run(page, hpage, args, rng) -> int:
             return 1
         rounds += 1
 
-        excerpt = choose_excerpt(page_spans(page), used)
+        # Each comment takes the middle of its own 1/total share of the reading,
+        # so the run spreads over the whole document instead of stacking on page one.
+        target = (posted + 0.5) / total
+        excerpt = choose_excerpt(spans, used, target=target)
         if excerpt is None:
-            print("Gave up: no unused passages left on this page.")
+            print("Gave up: no unused passages left in the reading.")
             return 1
 
         try:
             reply = write_insight(excerpt, doc_title(page), args.model)
             text = humanize(reply, hpage, args.humanizer, args.model)
-            post_comment(page, excerpt, text, rng)
+            post_comment(page, excerpt, text, rng, target)
         except LlmError as exc:
             print(f"Stopped before posting: {exc}")
             return 1
@@ -105,6 +135,9 @@ def run(page, hpage, args, rng) -> int:
 
 def main() -> int:
     args = parse_args(sys.argv[1:])
+    if not args.model:
+        args.model = pick_model()
+    print(f"Comment model: {args.model or 'pi default'}")
     with sync_playwright() as p:
         ctx = p.chromium.launch_persistent_context(
             user_data_dir=".browser-profile",

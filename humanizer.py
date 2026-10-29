@@ -12,7 +12,8 @@ OUTPUT = "#rich-textarea"
 _BLOCK_WORDS = ("attention required", "just a moment", "blocked")
 
 _REWRITE = """Rewrite this so it does not read as machine-written. Keep the
-meaning and roughly the length. Reply with the rewritten text only.
+meaning and keep it at least as long as the original — never shorten it or drop
+detail. Reply with the rewritten text only.
 
 {text}"""
 
