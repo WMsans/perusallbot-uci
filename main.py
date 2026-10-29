@@ -12,6 +12,7 @@ import perusall
 from humanizer import HumanizerBlocked
 from llm import LlmError, write_insight
 from perusall import (
+    AssignmentNotFound,
     choose_excerpt,
     doc_title,
     open_first_assignment,
@@ -118,7 +119,11 @@ def main() -> int:
         hpage.goto(humanizer.URL)
         page.bring_to_front()
 
-        open_first_assignment(page, args.assignment)
+        try:
+            open_first_assignment(page, args.assignment)
+        except AssignmentNotFound as exc:
+            print(f"Nothing to do: {exc}")
+            return 1
         return run(page, hpage, args, random.Random())
 
 

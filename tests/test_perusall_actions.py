@@ -132,3 +132,121 @@ def test_absent_assignment_raises_a_named_error():
 
     with pytest.raises(AssignmentNotFound):
         require_rows(EmptyRows())
+
+
+# --- picking the first assignment that still needs work -----------------------
+
+from perusall import is_actionable, open_first_assignment  # noqa: E402
+
+
+def test_a_finished_assignment_is_not_actionable():
+    assert is_actionable(Requirement(3, 0)) is False
+
+
+def test_an_unfinished_assignment_is_actionable():
+    assert is_actionable(Requirement(3, 2)) is True
+
+
+def test_a_non_comment_requirement_is_not_actionable():
+    assert is_actionable(None) is False
+
+
+class Row:
+    def __init__(self, page, index):
+        self.page, self.index = page, index
+
+    def click(self):
+        self.page.clicked_rows.append(self.index)
+        self.page.current = self.index
+
+
+class Rows:
+    def __init__(self, page, count):
+        self.page, self.count_ = page, count
+
+    def count(self):
+        return self.count_
+
+    def nth(self, i):
+        return Row(self.page, i)
+
+    @property
+    def first(self):
+        return Row(self.page, 0)
+
+
+class Toggle:
+    def __init__(self):
+        self.clicked = 0
+
+    def get_attribute(self, name):
+        return "true"
+
+    def click(self):
+        self.clicked += 1
+
+
+class WorkButton:
+    def __init__(self, page):
+        self.page = page
+
+    def click(self):
+        self.page.work_clicked += 1
+
+
+class SelectionPage:
+    """Two rows: the first already has all its comments, the second does not."""
+
+    def __init__(self, requirements):
+        self.requirements = requirements
+        self.clicked_rows = []
+        self.work_clicked = 0
+        self.current = 0
+
+    def goto(self, *a, **kw):
+        pass
+
+    def get_by_role(self, role, name=None):
+        if role == "switch":
+            return Toggle()
+        return WorkButton(self)
+
+    def locator(self, selector, has_text=None):
+        if "role=\"row\"" in selector or "role='row'" in selector:
+            return Rows(self, len(self.requirements))
+        return self
+
+    def count(self):
+        return 1
+
+    def inner_text(self):
+        req = self.requirements[self.current]
+        if req is None:
+            return "Reply to at least 2 classmates."
+        return f"Post at least {req.required} comments, questions, or responses ({req.remaining} remaining)."
+
+    def wait_for_selector(self, selector, timeout=None):
+        return object()
+
+
+def test_skips_assignments_that_already_have_their_comments():
+    page = SelectionPage([Requirement(3, 0), Requirement(3, 3)])
+    open_first_assignment(page)
+    assert page.clicked_rows == [0, 1]
+    assert page.work_clicked == 1
+
+
+def test_starts_at_the_first_incomplete_assignment_without_opening_a_finished_one():
+    page = SelectionPage([Requirement(3, 0), Requirement(3, 3), Requirement(3, 1)])
+    open_first_assignment(page)
+    assert page.work_clicked == 1
+    assert page.clicked_rows[-1] == 1
+
+
+def test_reports_when_every_assignment_is_already_done():
+    import pytest
+
+    page = SelectionPage([Requirement(3, 0), Requirement(3, 0)])
+    with pytest.raises(AssignmentNotFound):
+        open_first_assignment(page)
+    assert page.work_clicked == 0

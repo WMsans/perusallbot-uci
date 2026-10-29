@@ -58,19 +58,20 @@ ROWS = '[role="row"][data-p-index]'
 PAGE_TEXT_SPANS = ".page-container .textLayer span"
 EDITOR = "div.ql-editor"
 POST_BUTTON = 'button[aria-label="Post comment"]'
+PREVIEW_PROGRESS = ".preview-pane .my-progress"
 
 
 class AssignmentNotFound(Exception):
     """No assignment row matched."""
 
 
-def read_requirement(page) -> Requirement | None:
+def read_requirement(page, selector: str = ".my-progress") -> Requirement | None:
     """Read the progress bubble, giving the panel a moment to render."""
     try:
-        page.wait_for_selector(".my-progress", timeout=10_000)
+        page.wait_for_selector(selector, timeout=10_000)
     except Exception:
         return None
-    loc = page.locator(".my-progress")
+    loc = page.locator(selector)
     try:
         if loc.count() == 0:
             return None
@@ -99,17 +100,33 @@ def require_rows(rows):
     return rows
 
 
+def is_actionable(requirement: Requirement | None) -> bool:
+    """An assignment worth starting: a comment quota that is not yet met."""
+    return requirement is not None and requirement.remaining > 0
+
+
 def open_first_assignment(page, name: str | None = None) -> None:
+    """Open the first assignment that still needs comments.
+
+    Finished assignments are skipped, not opened and abandoned: entering one
+    just replays "you already have 3 comments".
+    """
     page.goto(ASSIGNMENTS_URL)
-    # Past-due assignments are hidden so the first row is one still worth doing.
     for label in ("Hide past due", "Preview"):
         toggle = page.get_by_role("switch", name=label)
         if toggle.get_attribute("aria-checked") == "false":
             toggle.click()
+
     rows = require_rows(page.locator(ROWS, has_text=name) if name else page.locator(ROWS))
-    rows.first.click()
-    page.get_by_role("button", name="Work on assignment").click()
-    page.wait_for_selector(".page-container", timeout=60_000)
+    for i in range(rows.count()):
+        rows.nth(i).click()
+        requirement = read_requirement(page, PREVIEW_PROGRESS)
+        if not is_actionable(requirement):
+            continue
+        page.get_by_role("button", name="Work on assignment").click()
+        page.wait_for_selector(".page-container", timeout=60_000)
+        return
+    raise AssignmentNotFound("every assignment in the list is already done")
 
 
 def find_span(page, excerpt: str) -> int:

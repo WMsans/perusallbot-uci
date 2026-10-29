@@ -42,7 +42,8 @@ uv run main.py --model deepseek/deepseek-flash
 
 A Chrome window opens on your course's assignments list. **Log in there
 yourself** (UCI SSO + Duo), then press Enter in the terminal. The bot takes over
-from there: it opens the first assignment in the list and starts posting.
+from there: it walks the list, skips anything already finished or already
+satisfied, and opens the first assignment that still needs comments.
 
 | Flag | Meaning |
 | --- | --- |
@@ -56,6 +57,8 @@ Exit code `0` means the requirement was met (or your `--count` cap was reached).
 ## When it stops
 
 - **Requirement met** — done.
+- **Every assignment in the list is already done** — it says so and exits
+  without opening anything; finished assignments are checked and skipped.
 - **The requirement isn't a comment count** (reply to classmates, checkpoints,
   read every page) — it aborts before posting anything.
 - **The humanizer blocks us** — the run stops immediately. Nothing is retried and
