@@ -135,6 +135,16 @@ _CENTER_SPAN = """(i) => {
   const b = span.getBoundingClientRect();
   return [b.x, b.y, b.width, b.height];
 }"""
+
+# A drag that runs off the bottom of a page leaves Perusall with no single page
+# to anchor the annotation to, so no editor opens. Index of the page's last span.
+_PAGE_END = """(i) => {
+  const spans = Array.from(document.querySelectorAll('.page-container .textLayer span'));
+  const page = spans[i] && spans[i].closest('.page-container');
+  if (!page) return null;
+  const own = Array.from(page.querySelectorAll('.textLayer span'));
+  return own.length ? spans.indexOf(own[own.length - 1]) : null;
+}"""
 _SETTLE_STEPS = 4
 
 
@@ -296,8 +306,13 @@ def highlight(page, excerpt: str, rng, target: float | None = None) -> None:
     center_span(page, start)
     start = find_span(page, excerpt)  # indices shift when a page renders
 
+    end = min(start + 2, spans.count() - 1)
+    page_end = page.evaluate(_PAGE_END, start)
+    if page_end is not None:
+        end = min(end, page_end)
+
     top = spans.nth(start).bounding_box()
-    below = spans.nth(min(start + 2, spans.count() - 1)).bounding_box()
+    below = spans.nth(end).bounding_box()
     if not top or not below:
         raise RuntimeError("excerpt is not on screen; scroll it into view first")
 

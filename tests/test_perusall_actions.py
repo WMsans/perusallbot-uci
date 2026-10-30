@@ -357,7 +357,6 @@ def test_finds_an_excerpt_when_the_span_uses_control_char_spaces():
 
 # --- centring the line: a drag during a scroll picks nothing ------------------
 
-
 class SettlingReader:
     """Same box twice in a row means the reader has stopped moving."""
 
@@ -395,6 +394,64 @@ def test_finds_an_excerpt_whose_start_straddles_a_line_break():
         ". In this game you are Solid Snake and the game tells you so",
     ])
     assert perusall.find_span(page, "In this game you are Solid Snake") == 1
+
+
+# --- a drag that leaves the page opens no editor --------------------------------
+# Regression: the excerpt started on the last lines of a page, so the drag ran
+# into the next page and Perusall never opened div.ql-editor.
+
+
+class TwoPageDrag:
+    """Span 0 ends page one; the drag must stop there, not run on to span 3."""
+
+    boxes = {i: {"x": 0.0, "y": i * 10.0, "width": 100.0, "height": 8.0} for i in range(4)}
+    texts = ["end of the first page", "excerpt starts here and runs on",
+             "onto the next page", "and further still"]
+
+    class Mouse:
+        def __init__(self):
+            self.moved = []
+
+        def move(self, x, y, steps=None):
+            self.moved.append((x, y))
+
+        def down(self):
+            pass
+
+        def up(self):
+            pass
+
+    def __init__(self):
+        self.mouse = self.Mouse()
+
+    def evaluate(self, script, arg=None):
+        if script is perusall._SPAN_TEXTS:
+            return self.texts
+        return 1  # page one's last span
+
+    def locator(self, selector):
+        boxes = self.boxes
+
+        class Spans:
+            def count(self):
+                return len(boxes)
+
+            def nth(self, i):
+                class One:
+                    def bounding_box(self):
+                        return boxes[i]
+
+                return One()
+
+        return Spans()
+
+
+def test_a_drag_stops_at_the_end_of_the_page(monkeypatch):
+    page = TwoPageDrag()
+    monkeypatch.setattr(perusall, "reveal_excerpt", lambda *a, **k: 1)
+    monkeypatch.setattr(perusall, "center_span", lambda *a, **k: None)
+    perusall.highlight(page, "excerpt starts here", __import__("random").Random(3))
+    assert page.mouse.moved[-1] == (97.0, 14.0)  # span 1, not span 3
 
 
 # --- a drag Perusall swallows is retried once, not fatal ----------------------
